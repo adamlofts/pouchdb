@@ -775,7 +775,8 @@ function queryViewInQueue(view, opts) {
     });
     return Promise.all(fetchPromises).then(flatten).then(onMapResultsReady);
   } else if (isReduceCount) {
-      var viewOpts = {
+     log("fast reduce view.");
+      var viewOpts1 = {
         descending : opts.descending
       };
       if (opts.start_key) {
@@ -785,7 +786,7 @@ function queryViewInQueue(view, opts) {
           opts.endkey = opts.end_key;
       }
       if (typeof opts.startkey !== 'undefined') {
-        viewOpts.startkey = opts.descending ?
+        viewOpts1.startkey = opts.descending ?
           toIndexableString([opts.startkey, {}]) :
           toIndexableString([opts.startkey]);
       }
@@ -795,7 +796,7 @@ function queryViewInQueue(view, opts) {
           inclusiveEnd = !inclusiveEnd;
         }
 
-        viewOpts.endkey = toIndexableString(
+        viewOpts1.endkey = toIndexableString(
           inclusiveEnd ? [opts.endkey, {}] : [opts.endkey]);
       }
 
@@ -804,8 +805,8 @@ function queryViewInQueue(view, opts) {
     .then(function (countDoc) {
       var total = 0;
       for (var key in countDoc.count) {
-        if ((viewOpts.startkey == null || collate(key, viewOpts.startkey) >= 0) &&
-            (viewOpts.endkey == null || collate(key, viewOpts.endkey) <= 0)) {
+        if ((viewOpts1.startkey == null || collate(key, viewOpts1.startkey) >= 0) &&
+            (viewOpts1.endkey == null || collate(key, viewOpts1.endkey) <= 0)) {
           total += countDoc.count[key];
         }
       }
@@ -856,6 +857,8 @@ function queryViewInQueue(view, opts) {
         viewOpts.limit = opts.limit;
       }
       viewOpts.skip = skip;
+    } else {
+      log("slow reduce view.");
     }
     return fetchFromView(viewOpts).then(onMapResultsReady);
   }
