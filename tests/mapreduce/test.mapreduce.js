@@ -517,29 +517,9 @@ function tests(suiteName, dbName, dbType, viewType) {
       }).should.become([2, 1]);
     });
 
-    it("Built in _count reduce function", function () {
-      var db = new PouchDB(dbName);
-      return createView(db, {
-        map: function (doc) {
-          emit(doc.val, doc.val);
-        },
-        reduce: "_count"
-      }).then(function (queryFun) {
-        return db.bulkDocs({
-          docs: [
-            { val: 'bar' },
-            { val: 'bar' },
-            { val: 'baz' }
-          ]
-        }).then(function () {
-          return db.query(queryFun, {reduce: true, group_level: 999});
-        }).then(function (resp) {
-          return resp.rows.map(function (row) {
-            return row.value;
-
     it("Built in _count reduce function with endkey", function () {
-      return new PouchDB(dbName).then(function (db) {
-        return createView(db, {
+      var db = new PouchDB(dbName);
+    return createView(db, {
           map: function (doc) {
             emit(doc.val, doc.val);
           },
@@ -557,14 +537,13 @@ function tests(suiteName, dbName, dbType, viewType) {
             return resp.rows.map(function (row) {
               return row.value;
             });
-          });
         });
       }).should.become([2]);
     });
 
     it("Built in _count reduce function with startkey", function () {
-      return new PouchDB(dbName).then(function (db) {
-        return createView(db, {
+      var db = new PouchDB(dbName);
+      return createView(db, {
           map: function (doc) {
             emit(doc.val, doc.val);
           },
@@ -581,32 +560,30 @@ function tests(suiteName, dbName, dbType, viewType) {
           }).then(function (resp) {
             return resp.rows.map(function (row) {
               return row.value;
-            });
           });
         });
       }).should.become([1]);
     });
 
     it("Built in _count reduce function", function () {
-      return new PouchDB(dbName).then(function (db) {
-        return createView(db, {
-          map: function (doc) {
-            emit([doc.val], doc.val);
-          },
-          reduce: "_count"
-        }).then(function (queryFun) {
-          return db.bulkDocs({
-            docs: [
-              { val: 'bar' },
-              { val: 'bar' },
-              { val: 'baz' }
-            ]
-          }).then(function () {
-            return db.query(queryFun, {reduce: true, group_level: 1});
-          }).then(function (resp) {
-            return resp.rows.map(function (row) {
-              return row.value;
-            });
+      var db = new PouchDB(dbName);
+      return createView(db, {
+        map: function (doc) {
+          emit(doc.val, 1);
+        },
+        reduce: "_count"
+      }).then(function (queryFun) {
+        return db.bulkDocs({
+          docs: [
+            { val: 'bar' },
+            { val: 'bar' },
+            { val: 'baz' }
+          ]
+        }).then(function () {
+          return db.query(queryFun, {reduce: true, group_level: 999});
+        }).then(function (resp) {
+          return resp.rows.map(function (row) {
+            return row.value;
           });
         });
       }).should.become([2, 1]);
