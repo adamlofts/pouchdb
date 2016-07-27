@@ -536,6 +536,77 @@ function tests(suiteName, dbName, dbType, viewType) {
         }).then(function (resp) {
           return resp.rows.map(function (row) {
             return row.value;
+
+    it("Built in _count reduce function with endkey", function () {
+      return new PouchDB(dbName).then(function (db) {
+        return createView(db, {
+          map: function (doc) {
+            emit(doc.val, doc.val);
+          },
+          reduce: "_count"
+        }).then(function (queryFun) {
+          return db.bulkDocs({
+            docs: [
+              { val: 'bar' },
+              { val: 'bar' },
+              { val: 'baz' }
+            ]
+          }).then(function () {
+            return db.query(queryFun, {reduce: true, end_key: 'bar'});
+          }).then(function (resp) {
+            return resp.rows.map(function (row) {
+              return row.value;
+            });
+          });
+        });
+      }).should.become([2]);
+    });
+
+    it("Built in _count reduce function with startkey", function () {
+      return new PouchDB(dbName).then(function (db) {
+        return createView(db, {
+          map: function (doc) {
+            emit(doc.val, doc.val);
+          },
+          reduce: "_count"
+        }).then(function (queryFun) {
+          return db.bulkDocs({
+            docs: [
+              { val: 'bar' },
+              { val: 'bar' },
+              { val: 'baz' }
+            ]
+          }).then(function () {
+            return db.query(queryFun, {reduce: true, start_key: 'baz'});
+          }).then(function (resp) {
+            return resp.rows.map(function (row) {
+              return row.value;
+            });
+          });
+        });
+      }).should.become([1]);
+    });
+
+    it("Built in _count reduce function", function () {
+      return new PouchDB(dbName).then(function (db) {
+        return createView(db, {
+          map: function (doc) {
+            emit([doc.val], doc.val);
+          },
+          reduce: "_count"
+        }).then(function (queryFun) {
+          return db.bulkDocs({
+            docs: [
+              { val: 'bar' },
+              { val: 'bar' },
+              { val: 'baz' }
+            ]
+          }).then(function () {
+            return db.query(queryFun, {reduce: true, group_level: 1});
+          }).then(function (resp) {
+            return resp.rows.map(function (row) {
+              return row.value;
+            });
           });
         });
       }).should.become([2, 1]);

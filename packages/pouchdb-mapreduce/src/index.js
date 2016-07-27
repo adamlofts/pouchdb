@@ -462,20 +462,20 @@ function saveKeyValues(view, docIdsToChangesAndEmits, seq) {
   .then(function (doc) {
     lastSeqDoc = doc;
     return view.db.get(countDocId);
-  }).catch(defaultsTo({_id: countDocId, count: 0}))
+  }).catch(defaultsTo({_id: countDocId, count: {}}))
   .then(function (countDoc) {
     var docIds = Object.keys(docIdsToChangesAndEmits);
     return Promise.all(docIds.map(function (docId) {
       return getDocsToPersist(docId, view, docIdsToChangesAndEmits);
     })).then(function (listOfDocsToPersist) {
       var docsToPersist = flatten(listOfDocsToPersist);
-      var count = 0;
       docsToPersist.forEach(function (doc) {
-        if (!doc._id.startsWith("_local")) {
-          count += 1;
+        if (doc._id.startsWith("_local")) {
+          return;
         }
+        // FIXME: Group into subsets.
+        countDoc.count[doc._id] = 1;
       });
-      countDoc.count += count;
       docsToPersist.push(countDoc);
       return docsToPersist;
     }).then(function (docsToPersist) {
@@ -683,7 +683,8 @@ function queryViewInQueue(view, opts) {
   var shouldReduce = view.reduceFun && opts.reduce !== false;
   var lvl = isNaN(opts.group_level) ? Number.POSITIVE_INFINITY :
       opts.group_level;
-  var isReduceCount = opts.reduce !== false && view.reduceFun == '_count' && lvl == Number.POSITIVE_INFINITY && !opts.group;
+  var isReduceCount = opts.reduce !== false && view.reduceFun == '_count' &&
+    lvl == Number.POSITIVE_INFINITY && !opts.group;
   var skip = opts.skip || 0;
   if (typeof opts.keys !== 'undefined' && !opts.keys.length) {
     // equivalent query
@@ -774,13 +775,44 @@ function queryViewInQueue(view, opts) {
     });
     return Promise.all(fetchPromises).then(flatten).then(onMapResultsReady);
   } else if (isReduceCount) {
+      var viewOpts = {
+        descending : opts.descending
+      };
+      if (opts.start_key) {
+          opts.startkey = opts.start_key;
+      }
+      if (opts.end_key) {
+          opts.endkey = opts.end_key;
+      }
+      if (typeof opts.startkey !== 'undefined') {
+        viewOpts.startkey = opts.descending ?
+          toIndexableString([opts.startkey, {}]) :
+          toIndexableString([opts.startkey]);
+      }
+      if (typeof opts.endkey !== 'undefined') {
+        var inclusiveEnd = opts.inclusive_end !== false;
+        if (opts.descending) {
+          inclusiveEnd = !inclusiveEnd;
+        }
+
+        viewOpts.endkey = toIndexableString(
+          inclusiveEnd ? [opts.endkey, {}] : [opts.endkey]);
+      }
+
     return view.db.get('_local/reduceCount')
     .catch(defaultsTo({_id: '_local/reduceCount', seq: 0}))
     .then(function (countDoc) {
+      var total = 0;
+      for (var key in countDoc.count) {
+        if ((viewOpts.startkey == null || collate(key, viewOpts.startkey) >= 0) &&
+            (viewOpts.endkey == null || collate(key, viewOpts.endkey) <= 0)) {
+          total += countDoc.count[key];
+        }
+      }
       return {
         "rows": [{
             "key": null,
-            "value": countDoc.count
+            "value": total
         }]
       };
     });
