@@ -434,6 +434,7 @@ function getDocsToPersist(docId, view, docIdsToChangesAndEmits) {
           kvDoc.value = keyValue.value;
         }
         kvDocs.push(kvDoc);
+
       }
     });
     metaDoc.keys = uniq(newKeys.concat(metaDoc.keys));
@@ -444,7 +445,8 @@ function getDocsToPersist(docId, view, docIdsToChangesAndEmits) {
 
   return getMetaDoc().then(function (metaDoc) {
     return getKeyValueDocs(metaDoc).then(function (kvDocsRes) {
-      return processKvDocs(metaDoc, kvDocsRes);
+      var kvDocs = processKvDocs(metaDoc, kvDocsRes);
+      return kvDocs;
     });
   });
 }
@@ -453,14 +455,30 @@ function getDocsToPersist(docId, view, docIdsToChangesAndEmits) {
 // for the given batch of documents from the source database
 function saveKeyValues(view, docIdsToChangesAndEmits, seq) {
   var seqDocId = '_local/lastSeq';
+  var countDocId = '_local/reduceCount';
+  var lastSeqDoc;
   return view.db.get(seqDocId)
   .catch(defaultsTo({_id: seqDocId, seq: 0}))
-  .then(function (lastSeqDoc) {
+  .then(function (doc) {
+    lastSeqDoc = doc;
+    return view.db.get(countDocId);
+  }).catch(defaultsTo({_id: countDocId, count: 0}))
+  .then(function (countDoc) {
     var docIds = Object.keys(docIdsToChangesAndEmits);
     return Promise.all(docIds.map(function (docId) {
       return getDocsToPersist(docId, view, docIdsToChangesAndEmits);
     })).then(function (listOfDocsToPersist) {
       var docsToPersist = flatten(listOfDocsToPersist);
+      var count = 0;
+      docsToPersist.forEach(function (doc) {
+        if (!doc._id.startsWith("_local")) {
+          count += 1;
+        }
+      });
+      countDoc.count += count;
+      docsToPersist.push(countDoc);
+      return docsToPersist;
+    }).then(function (docsToPersist) {
       lastSeqDoc.seq = seq;
       docsToPersist.push(lastSeqDoc);
       // write all docs in a single operation, update the seq once
@@ -598,6 +616,7 @@ function reduceView(view, results, options) {
   var shouldGroup = options.group || options.group_level;
 
   var reduceFun;
+  var isReduceCount = false;
   if (builtInReduce[view.reduceFun]) {
     reduceFun = builtInReduce[view.reduceFun];
   } else {
@@ -643,6 +662,12 @@ function reduceView(view, results, options) {
       key: e.groupKey
     });
   }
+//  log("IN REDUCE");
+//  results.push({
+//    // CouchDB just sets the value to null if a non-built-in errors out
+//    value: 1,
+//    key: ['a']
+//  });
   // no total_rows/offset when reducing
   return {rows: sliceResults(results, options.limit, options.skip)};
 }
@@ -656,6 +681,9 @@ function queryView(view, opts) {
 function queryViewInQueue(view, opts) {
   var totalRows;
   var shouldReduce = view.reduceFun && opts.reduce !== false;
+  var lvl = isNaN(opts.group_level) ? Number.POSITIVE_INFINITY :
+      opts.group_level;
+  var isReduceCount = opts.reduce !== false && view.reduceFun == '_count' && lvl == Number.POSITIVE_INFINITY && !opts.group;
   var skip = opts.skip || 0;
   if (typeof opts.keys !== 'undefined' && !opts.keys.length) {
     // equivalent query
@@ -745,6 +773,17 @@ function queryViewInQueue(view, opts) {
       return fetchFromView(viewOpts);
     });
     return Promise.all(fetchPromises).then(flatten).then(onMapResultsReady);
+  } else if (isReduceCount) {
+    return view.db.get('_local/reduceCount')
+    .catch(defaultsTo({_id: '_local/reduceCount', seq: 0}))
+    .then(function (countDoc) {
+      return {
+        "rows": [{
+            "key": null,
+            "value": countDoc.count
+        }]
+      };
+    });
   } else { // normal query, no 'keys'
     var viewOpts = {
       descending : opts.descending
