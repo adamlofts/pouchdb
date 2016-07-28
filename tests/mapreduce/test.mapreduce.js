@@ -541,6 +541,30 @@ function tests(suiteName, dbName, dbType, viewType) {
       }).should.become([2, 1]);
     });
 
+    it("Built in _count reduce function 2", function () {
+      var db = new PouchDB(dbName);
+      return createView(db, {
+        map: function (doc) {
+          emit(doc.val, doc.val);
+        },
+        reduce: "_count"
+      }).then(function (queryFun) {
+        return db.bulkDocs({
+          docs: [
+            { val: 'bar' },
+            { val: 'bar' },
+            { val: 'baz' }
+          ]
+        }).then(function () {
+          return db.query(queryFun, {reduce: true});
+        }).then(function (resp) {
+          return resp.rows.map(function (row) {
+            return row.value;
+          });
+        });
+      }).should.become([3]);
+    });
+
     it("Built in _stats reduce function", function () {
       var db = new PouchDB(dbName);
       return createView(db, {

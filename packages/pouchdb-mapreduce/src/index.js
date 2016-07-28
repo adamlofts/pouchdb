@@ -158,7 +158,10 @@ var builtInReduce = {
     return sum(values);
   },
 
-  _count: function (keys, values) {
+  _count: function (keys, values, rereduce) {
+    if (rereduce) {
+      return sum(values);
+    }
     return values.length;
   },
 
@@ -453,6 +456,29 @@ function getDocsToPersist(docId, view, docIdsToChangesAndEmits) {
 // for the given batch of documents from the source database
 function saveKeyValues(view, docIdsToChangesAndEmits, seq) {
   var seqDocId = '_local/lastSeq';
+  var minKey;
+  var maxKey;
+  Object.keys(docIdsToChangesAndEmits).forEach(function (docId) {
+    var indexableKeysToKeyValues = docIdsToChangesAndEmits[docId].indexableKeysToKeyValues;
+//    log(indexableKeysToKeyValues);
+//    log(Object.keys(indexableKeysToKeyValues));
+    Object.keys(indexableKeysToKeyValues).forEach(function (key) {
+//      log(key);
+      if (minKey == null) {
+        minKey = key;
+        maxKey = key;
+      } else {
+        if (collate(key, minKey) < 0) {
+          minKey = key;
+        }
+        if (collate(key, maxKey) > 0) {
+          maxKey = key;
+        }
+      }
+    });
+  });
+//  console.log("first: " + minKey);
+//  console.log("last: " + maxKey);
   return view.db.get(seqDocId)
   .catch(defaultsTo({_id: seqDocId, seq: 0}))
   .then(function (lastSeqDoc) {
@@ -465,6 +491,8 @@ function saveKeyValues(view, docIdsToChangesAndEmits, seq) {
       docsToPersist.push(lastSeqDoc);
       // write all docs in a single operation, update the seq once
       return view.db.bulkDocs({docs : docsToPersist});
+    }).then(function () {
+      return [minKey, maxKey];
     });
   });
 }
@@ -478,11 +506,82 @@ function getQueue(view) {
   return queue;
 }
 
-function updateView(view) {
+function updateView(view, is_temporary) {
   return sequentialize(getQueue(view), function () {
-    return updateViewInQueue(view);
+    return updateViewInQueue(view).then(function (r) {
+      if (view.reduceFun && !is_temporary) {
+        return updateReduceInQueue(view, r);
+      }
+    });
   })();
 }
+
+function forEachChunked(it, cb) {
+  var chunk = [];
+  it.forEach(function (v) {
+    chunk.push(v);
+    if (chunk.length >= 10) {
+      cb(chunk);
+      chunk = [];
+    }
+  });
+  if (chunk.length > 0) {
+    cb(chunk);
+  }
+}
+
+// Reduce the given range a list of ranges with reduced values.
+function reduceRange(view, startkey, endkey) {
+  var viewOpts = {
+//    startkey: startkey,
+//    endkey: endkey
+    include_docs: true
+  };
+  var reduceFun = getReduceFun(view);
+  return view.db.allDocs(viewOpts).then(function (res) {
+    var ranges = [];
+    forEachChunked(res.rows, function(chunk) {
+      var chunkValues = chunk.map(function (row) {
+        return row.doc.value;
+      });
+      var range = {
+        startkey: chunk[0]['key'],
+        endkey: chunk[chunk.length - 1]['key'],
+        reduction: reduceFun(null, chunkValues)
+      };
+      ranges.push(range);
+    });
+    log("reduceRange " + res.rows.length + " rows -> " + ranges.length + " ranges");
+    return ranges;
+  });
+}
+
+var REDUCE_ID = '_local/reduce';
+
+function updateReduceInQueue(view, r) {
+  var doc;
+  return view.db.get(REDUCE_ID)
+  .catch(defaultsTo({_id: REDUCE_ID, 'ranges': []}))
+  .then(function (d) {
+    doc = d;
+    // FIXME: Expand r to include any existing ranges it overlaps and remove these existing ranges from the array.
+    return reduceRange(view, r[0], r[1]);
+  }).then(function (newRanges) {
+//    log(newRanges);
+    doc.ranges = doc.ranges.concat(newRanges);
+    return view.db.put(doc);
+  });/*.then(function (ret) {
+    console.log("SAVE 1");
+    console.log(ret);
+    console.log(doc);
+    return view.db.get(REDUCE_ID);
+  }).then(function (d) {
+    console.log("SAVE 2");
+    console.log(d);
+    console.log("OK IN UPDATE");
+  });*/
+}
+
 
 function updateViewInQueue(view) {
   // bind the emit function once
@@ -512,10 +611,24 @@ function updateViewInQueue(view) {
   }
 
   var currentSeq = view.seq || 0;
+  var minKey;
+  var maxKey;
 
   function processChange(docIdsToChangesAndEmits, seq) {
     return function () {
-      return saveKeyValues(view, docIdsToChangesAndEmits, seq);
+      return saveKeyValues(view, docIdsToChangesAndEmits, seq).then(function (r) {
+        if (minKey == null) {
+          minKey = r[0];
+          maxKey = r[1];
+        } else {
+          if (collate(r[0], minKey) < 0) {
+            minKey = r[0];
+          }
+          if (collate(r[1], maxKey) > 0) {
+            maxKey = r[1];
+          }
+        }
+      });
     };
   }
 
@@ -527,7 +640,7 @@ function updateViewInQueue(view) {
     function complete() {
       queue.finish().then(function () {
         view.seq = currentSeq;
-        resolve();
+        resolve([minKey, maxKey]);
       });
     }
 
@@ -647,6 +760,15 @@ function reduceView(view, results, options) {
   return {rows: sliceResults(results, options.limit, options.skip)};
 }
 
+function getReduceFun(view) {
+  if (builtInReduce[view.reduceFun]) {
+    return builtInReduce[view.reduceFun];
+  } else {
+    return evalFunc(
+      view.reduceFun.toString(), null, sum, log, Array.isArray, JSON.parse);
+  }
+}
+
 function queryView(view, opts) {
   return sequentialize(getQueue(view), function () {
     return queryViewInQueue(view, opts);
@@ -662,6 +784,9 @@ function queryViewInQueue(view, opts) {
     opts.limit = 0;
     delete opts.keys;
   }
+  var isFastReduce = shouldReduce &&
+    !(opts.group || opts.group_level);
+//    typeof opts.fun === 'string';
 
   function fetchFromView(viewOpts) {
     viewOpts.include_docs = true;
@@ -735,6 +860,23 @@ function queryViewInQueue(view, opts) {
     }
   }
 
+  function fastReduce(opts) {
+    return view.db.get(REDUCE_ID).then(function (doc) {
+      var values = [];
+      doc.ranges.forEach(function (range) {
+        values.push(range.reduction);
+      });
+      log("fastReduce " + doc.ranges.length + " ranges");
+      var reduceFun = getReduceFun(view);
+      return {
+        "rows": [{
+          "key": null,
+          "value": reduceFun(null, values, true)
+        }]
+      };
+    });
+  }
+
   if (typeof opts.keys !== 'undefined') {
     var keys = opts.keys;
     var fetchPromises = keys.map(function (key) {
@@ -785,6 +927,9 @@ function queryViewInQueue(view, opts) {
         viewOpts.limit = opts.limit;
       }
       viewOpts.skip = skip;
+    }
+    if (isFastReduce) {
+      return fastReduce(viewOpts);
     }
     return fetchFromView(viewOpts).then(onMapResultsReady);
   }
@@ -885,7 +1030,7 @@ function queryPromised(db, fun, opts) {
         function cleanup() {
           return view.db.destroy();
         }
-        return fin(updateView(view).then(function () {
+        return fin(updateView(view, true).then(function () {
           return queryView(view, opts);
         }), cleanup);
       });
