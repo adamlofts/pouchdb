@@ -459,7 +459,16 @@ function updateSummary(view, docIdsToChangesAndEmits, listOfDocsToPersist) {
   .catch(defaultsTo({_id: summaryDocId}))
   .then(function (summaryDoc) {
      var summarizeFun = evalFunc(view.customIndex.toString(), sum, log, Array.isArray, JSON.parse);
-     summaryDoc.value = summarizeFun(summaryDoc.value, listOfDocsToPersist, docIdsToChangesAndEmits);
+     var value = summaryDoc.value;
+     listOfDocsToPersist.forEach(function(byDoc) {
+       byDoc.forEach(function(doc) {
+         if (doc._id.startsWith("_")) {
+           return;
+        }
+        value = summarizeFun(value, doc);
+       });
+     });
+     summaryDoc.value = value;
      listOfDocsToPersist.push([summaryDoc]);
      return listOfDocsToPersist;
   });

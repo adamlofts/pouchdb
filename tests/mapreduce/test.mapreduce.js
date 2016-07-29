@@ -3200,20 +3200,13 @@ function tests(suiteName, dbName, dbType, viewType) {
         map: function (doc) {
           emit(doc.val, doc.val);
         },
-        customIndex: function(value, listOfDocsToPersist, docIdsToChangesAndEmits) {
+        customIndex: function(value, doc) {
           var count = value || 0;
-          listOfDocsToPersist.forEach(function(byDoc) {
-            byDoc.forEach(function(doc) {
-              if (doc._id.startsWith("_")) {
-                return;
-              }
-              if (doc._deleted) {
-                count -= 1;
-              } else {
-                count += 1;
-              }
-            });
-          });
+          if (doc._deleted) {
+            count -= 1;
+          } else {
+            count += 1;
+          }
           return count;
         }
       }).then(function (queryFun) {
