@@ -3200,9 +3200,9 @@ function tests(suiteName, dbName, dbType, viewType) {
         map: function (doc) {
           emit(doc.val, doc.val);
         },
-        customIndex: function(value, doc) {
-          var count = value || 0;
-          if (doc._deleted) {
+        customIndex: function(agg, key, value, is_deleted) {
+          var count = agg || 0;
+          if (is_deleted) {
             count -= 1;
           } else {
             count += 1;
@@ -3229,5 +3229,127 @@ function tests(suiteName, dbName, dbType, viewType) {
       });
     });
 
+    it("Summary function counting by tag.", function () {
+      var db = new PouchDB(dbName);
+      return createView(db, {
+        map: function (doc) {
+          doc.tags.forEach(function(tag) {
+            emit(tag);
+          });
+        },
+        customIndex: function(agg, key, value, is_deleted) {
+          if (agg == null) {
+            agg = {};
+          }
+          var count = agg[key] || 0;
+          if (is_deleted) {
+            count -= 1;
+          } else {
+            count += 1;
+          }
+          agg[key] = count;
+          return agg;
+        }
+      }).then(function (queryFun) {
+        return db.bulkDocs({
+          docs: [
+            { _id: '1', tags: ['a', 'b'] },
+            { tags: ['a', 'b', 'c'] },
+            { tags: ['c'] }
+          ]
+        }).then(function () {
+          return db.query(queryFun, {summary: true});
+        }).should.become({a: 2, b: 2, c: 2})
+        .then(function () {
+          return db.get('1');
+        }).then(function (doc) {
+          return db.remove(doc._id, doc._rev);
+        }).then(function () {
+          return db.query(queryFun, {summary: true});
+        }).should.become({a: 1, b: 1, c: 2});
+      });
+    });
+
+    it("Summary function counting by row value.", function () {
+      var db = new PouchDB(dbName);
+      return createView(db, {
+        map: function (doc) {
+          doc.tags.forEach(function(tag) {
+            emit(null, tag);
+          });
+        },
+        customIndex: function(agg, key, value, is_deleted) {
+          if (agg == null) {
+            agg = {};
+          }
+          var count = agg[value] || 0;
+          if (is_deleted) {
+            count -= 1;
+          } else {
+            count += 1;
+          }
+          agg[value] = count;
+          return agg;
+        }
+      }).then(function (queryFun) {
+        return db.bulkDocs({
+          docs: [
+            { _id: '1', tags: ['a', 'b'] },
+            { tags: ['a', 'b', 'c'] },
+            { tags: ['c'] }
+          ]
+        }).then(function () {
+          return db.query(queryFun, {summary: true});
+        }).should.become({a: 2, b: 2, c: 2})
+        .then(function () {
+          return db.get('1');
+        }).then(function (doc) {
+          return db.remove(doc._id, doc._rev);
+        }).then(function () {
+          return db.query(queryFun, {summary: true});
+        }).should.become({a: 1, b: 1, c: 2});
+      });
+    });
+
+    it("Summary function counting by array tags", function () {
+      var db = new PouchDB(dbName);
+      return createView(db, {
+        map: function (doc) {
+          doc.tags.forEach(function(tag) {
+            emit([tag, 'data']);
+          });
+        },
+        customIndex: function(agg, key, value, is_deleted) {
+          if (agg == null) {
+            agg = {};
+          }
+          var count = agg[key[0]] || 0;
+          if (is_deleted) {
+            count -= 1;
+          } else {
+            count += 1;
+          }
+          agg[key[0]] = count;
+          return agg;
+        }
+      }).then(function (queryFun) {
+        return db.bulkDocs({
+          docs: [
+            { _id: '1', tags: ['a', 'b'] },
+            { tags: ['a', 'b', 'c'] },
+            { tags: ['c'] }
+          ]
+        }).then(function () {
+          return db.query(queryFun, {summary: true});
+        }).should.become({a: 2, b: 2, c: 2})
+        .then(function () {
+          return db.get('1');
+        }).then(function (doc) {
+          return db.remove(doc._id, doc._rev);
+        }).then(function () {
+          return db.query(queryFun, {summary: true});
+        }).should.become({a: 1, b: 1, c: 2});
+      });
+    });
   });
 }

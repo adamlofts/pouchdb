@@ -459,16 +459,17 @@ function updateSummary(view, docIdsToChangesAndEmits, listOfDocsToPersist) {
   .catch(defaultsTo({_id: summaryDocId}))
   .then(function (summaryDoc) {
      var summarizeFun = evalFunc(view.customIndex.toString(), sum, log, Array.isArray, JSON.parse);
-     var value = summaryDoc.value;
+     var agg = summaryDoc.agg;
      listOfDocsToPersist.forEach(function(byDoc) {
        byDoc.forEach(function(doc) {
          if (doc._id.startsWith("_")) {
            return;
         }
-        value = summarizeFun(value, doc);
+        var key = parseIndexableString(doc._id)[0];
+        agg = summarizeFun(agg, key, doc.value, doc._deleted);
        });
      });
-     summaryDoc.value = value;
+     summaryDoc.agg = agg;
      listOfDocsToPersist.push([summaryDoc]);
      return listOfDocsToPersist;
   });
@@ -779,7 +780,7 @@ function queryViewInQueue(view, opts) {
     return view.db.get(summaryDocId)
     .catch(defaultsTo({_id: summaryDocId}))
     .then(function (summaryDoc) {
-      return summaryDoc.value;
+      return summaryDoc.agg;
     });
   } else { // normal query, no 'keys'
     var viewOpts = {
