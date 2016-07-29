@@ -3213,21 +3213,62 @@ function tests(suiteName, dbName, dbType, viewType) {
         return db.bulkDocs({
           docs: [
             { _id: '1', val: 'bar' },
-            { val: 'bar' },
+            { _id: '2', val: 'bar' },
             { val: 'baz' }
           ]
         }).then(function () {
           return db.query(queryFun, {summary: true});
         }).should.become(3)
-        .then(function () {
+        .then(function () {  // Delete a doc. Check result.
           return db.get('1');
         }).then(function (doc) {
           return db.remove(doc._id, doc._rev);
         }).then(function () {
           return db.query(queryFun, {summary: true});
+        }).should.become(2)
+        .then(function () {  // Update a doc. Check result.
+          return db.get('2');
+        }).then(function (doc) {
+          return db.put({_id: '2', _rev: doc._rev, val: 'hey!'});
+        }).then(function () {
+          return db.query(queryFun, {summary: true});
         }).should.become(2);
       });
     });
+
+    it("Summary function update same val as we go.", function () {
+      var db = new PouchDB(dbName);
+      return createView(db, {
+        map: function (doc) {
+          emit(doc.val, doc.val);
+        },
+        customIndex: function(agg, key, value, is_deleted) {
+          var count = agg || 0;
+          if (is_deleted) {
+            count -= 1;
+          } else {
+            count += 1;
+          }
+          return count;
+        }
+      }).then(function (queryFun) {
+        return db.bulkDocs({
+          docs: [
+            { _id: '1', val: 'bar' }
+          ]
+        }).then(function () {
+          return db.query(queryFun, {summary: true});
+        }).should.become(1)
+        .then(function () {  // Delete a doc. Check result.
+          return db.get('1');
+        }).then(function (doc) {
+          return db.put({_id: '1', _rev: doc._rev, val: 'bar'});
+        }).then(function () {
+          return db.query(queryFun, {summary: true});
+        }).should.become(1);
+      });
+    });
+
 
     it("Summary function counting by tag.", function () {
       var db = new PouchDB(dbName);

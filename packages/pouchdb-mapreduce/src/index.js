@@ -462,11 +462,17 @@ function updateSummary(view, docIdsToChangesAndEmits, listOfDocsToPersist) {
      var agg = summaryDoc.agg;
      listOfDocsToPersist.forEach(function(byDoc) {
        byDoc.forEach(function(doc) {
-         if (doc._id.startsWith("_")) {
+         if (doc._id.startsWith("_")) {  // Exclude _local docs
            return;
-        }
-        var key = parseIndexableString(doc._id)[0];
-        agg = summarizeFun(agg, key, doc.value, doc._deleted);
+         }
+         // Exclude non-deleting updates to docs. An update implies that the row key has stayed the same, though the value may have changed.
+         // This is to avoid counting the doc again when it is updated in the summarize function.
+         if (!doc._deleted && doc._rev) {
+           return;
+         }
+         log("INDEX");
+         var key = parseIndexableString(doc._id)[0];
+         agg = summarizeFun(agg, key, doc.value, doc._deleted);
        });
      });
      summaryDoc.agg = agg;
