@@ -449,6 +449,22 @@ function getDocsToPersist(docId, view, docIdsToChangesAndEmits) {
   });
 }
 
+var summaryDocId = '_local/summary';
+
+function updateSummary(view, docIdsToChangesAndEmits, listOfDocsToPersist) {
+  if (!view.customIndex) {
+    return listOfDocsToPersist;
+  }
+  return view.db.get(summaryDocId)
+  .catch(defaultsTo({_id: summaryDocId}))
+  .then(function (summaryDoc) {
+     var summarizeFun = evalFunc(view.customIndex.toString(), sum, log, Array.isArray, JSON.parse);
+     summaryDoc.value = summarizeFun(summaryDoc.value, listOfDocsToPersist, docIdsToChangesAndEmits);
+     listOfDocsToPersist.push([summaryDoc]);
+     return listOfDocsToPersist;
+  });
+}
+
 // updates all emitted key/value docs and metaDocs in the mrview database
 // for the given batch of documents from the source database
 function saveKeyValues(view, docIdsToChangesAndEmits, seq) {
@@ -459,7 +475,11 @@ function saveKeyValues(view, docIdsToChangesAndEmits, seq) {
     var docIds = Object.keys(docIdsToChangesAndEmits);
     return Promise.all(docIds.map(function (docId) {
       return getDocsToPersist(docId, view, docIdsToChangesAndEmits);
-    })).then(function (listOfDocsToPersist) {
+    }))
+    .then(function (listOfDocsToPersist) {
+      return updateSummary(view, docIdsToChangesAndEmits, listOfDocsToPersist);
+    })
+    .then(function (listOfDocsToPersist) {
       var docsToPersist = flatten(listOfDocsToPersist);
       lastSeqDoc.seq = seq;
       docsToPersist.push(lastSeqDoc);
@@ -745,6 +765,13 @@ function queryViewInQueue(view, opts) {
       return fetchFromView(viewOpts);
     });
     return Promise.all(fetchPromises).then(flatten).then(onMapResultsReady);
+  } else if (opts.summary) {
+    // Summary query just returns the summary doc value.
+    return view.db.get(summaryDocId)
+    .catch(defaultsTo({_id: summaryDocId}))
+    .then(function (summaryDoc) {
+      return summaryDoc.value;
+    });
   } else { // normal query, no 'keys'
     var viewOpts = {
       descending : opts.descending
@@ -910,7 +937,8 @@ function queryPromised(db, fun, opts) {
         db : db,
         viewName : fullViewName,
         map : fun.map,
-        reduce : fun.reduce
+        reduce : fun.reduce,
+        customIndex: fun.customIndex
       };
       return createView(createViewOpts).then(function (view) {
         if (opts.stale === 'ok' || opts.stale === 'update_after') {

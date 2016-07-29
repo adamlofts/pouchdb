@@ -5,13 +5,13 @@ function createView(opts) {
   var sourceDB = opts.db;
   var viewName = opts.viewName;
   var mapFun = opts.map;
+  var customIndex = opts.customIndex;
   var reduceFun = opts.reduce;
   var temporary = opts.temporary;
 
   // the "undefined" part is for backwards compatibility
   var viewSignature = mapFun.toString() + (reduceFun && reduceFun.toString()) +
-    'undefined';
-
+    (customIndex && customIndex.toString()) + 'undefined';
   var cachedViews;
   if (!temporary) {
     // cache this to ensure we don't try to update the same view twice
@@ -52,7 +52,8 @@ function createView(opts) {
           sourceDB: sourceDB,
           adapter: sourceDB.adapter,
           mapFun: mapFun,
-          reduceFun: reduceFun
+          reduceFun: reduceFun,
+          customIndex: customIndex
         };
         return view.db.get('_local/lastSeq').catch(function (err) {
           /* istanbul ignore if */

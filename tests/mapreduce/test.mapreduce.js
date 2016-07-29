@@ -29,6 +29,9 @@ function tests(suiteName, dbName, dbType, viewType) {
         if (viewObj.reduce) {
           storableViewObj.reduce = viewObj.reduce.toString();
         }
+        if (viewObj.customIndex) {
+          storableViewObj.customIndex = viewObj.customIndex.toString();
+        }
         return new Promise(function (resolve, reject) {
           db.put({
             _id: '_design/theViewDoc',
@@ -3190,5 +3193,48 @@ function tests(suiteName, dbName, dbType, viewType) {
         });
       });
     });
+
+    it("Summary function counting as we go.", function () {
+      var db = new PouchDB(dbName);
+      return createView(db, {
+        map: function (doc) {
+          emit(doc.val, doc.val);
+        },
+        customIndex: function(value, listOfDocsToPersist, docIdsToChangesAndEmits) {
+          var count = value || 0;
+          listOfDocsToPersist.forEach(function(byDoc) {
+            byDoc.forEach(function(doc) {
+              if (doc._id.startsWith("_")) {
+                return;
+              }
+              if (doc._deleted) {
+                count -= 1;
+              } else {
+                count += 1;
+              }
+            });
+          });
+          return count;
+        }
+      }).then(function (queryFun) {
+        return db.bulkDocs({
+          docs: [
+            { _id: '1', val: 'bar' },
+            { val: 'bar' },
+            { val: 'baz' }
+          ]
+        }).then(function () {
+          return db.query(queryFun, {summary: true});
+        }).should.become(3)
+        .then(function () {
+          return db.get('1');
+        }).then(function (doc) {
+          return db.remove(doc._id, doc._rev);
+        }).then(function () {
+          return db.query(queryFun, {summary: true});
+        }).should.become(2);
+      });
+    });
+
   });
 }
