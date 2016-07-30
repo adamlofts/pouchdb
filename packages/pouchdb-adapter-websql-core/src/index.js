@@ -864,7 +864,7 @@ function WebSqlPouch(opts, callback) {
     var digest = attachment.digest;
     var type = attachment.content_type;
     var sql = 'SELECT escaped, ' +
-      'CASE WHEN escaped = 1 THEN body ELSE HEX(body) END AS body FROM ' +
+      'CASE WHEN escaped = 1 THEN substr(body, 1, 500000) ELSE HEX(body) END AS body FROM ' +
       ATTACH_STORE + ' WHERE digest=?';
     tx.executeSql(sql, [digest], function (tx, result) {
       // websql has a bug where \u0000 causes early truncation in strings
