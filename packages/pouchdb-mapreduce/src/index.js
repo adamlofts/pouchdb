@@ -470,7 +470,6 @@ function updateSummary(view, docIdsToChangesAndEmits, listOfDocsToPersist) {
          if (!doc._deleted && doc._rev) {
            return;
          }
-         log("INDEX");
          var key = parseIndexableString(doc._id)[0];
          agg = summarizeFun(agg, key, doc.value, doc._deleted);
        });
